@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 
-import pandas as pd
+import pyodbc
 
 class Gatherer:
     """
@@ -11,6 +11,8 @@ class Gatherer:
     def __init__(self, scraper):
         self.scraper = scraper
         self.current_scrape = []
+        self.jobbie_user = os.environ['JOBBIE_USER']
+        self.jobbie_pw = os.environ['JOBBIE_PW']
 
     def ingest_data(self, job_data):
         self.current_scrape += job_data
@@ -28,6 +30,8 @@ class Gatherer:
         job_data = self.scraper.scrape_jobs()
         self.ingest_data(job_data)
         job_data_per_pagination = len(job_data)
+        if job_data_per_pagination == 0:
+            return 
         start += job_data_per_pagination
 
         while len(job_data) == job_data_per_pagination:
@@ -38,43 +42,29 @@ class Gatherer:
             self.ingest_data(job_data)
 
     def digest_data(self):
-        print('digesting scraped data...')
-        application_types = {
-            'taleo': [],
-            'myworkday': [],
-            'lever': [],
-            'treehouse': [],
-            'other': []
-        }
+        cnxn_str = "DRIVER={MySQL ODBC 8.0 Driver};SERVER=jobbie-db.cpggzb24ffm6.ca-central-1.rds.amazonaws.com;DATABASE=jobbie_db;"
+        cnxn_str += 'UID='+self.jobbie_user+';'
+        cnxn_str += 'PASSWORD='+self.jobbie_pw+';'
+        cursor = pyodbc.connect(cnxn_str).cursor()
+
+        columns = ['title', 'description', 'link', 'date', 'keywords', 'location']
+        sql_stem = 'INSERT INTO jobPostings('
+        sql_stem += ', '.join(columns) + ')\nVALUES\n'
         for job in self.current_scrape:
-            discovered_type = False
-            for application_type in application_types:
-                if application_type in job['link']:
-                    application_types[application_type].append(job)
-                    discovered_type = True
-            if not discovered_type:
-                application_types['other'].append(job)
-
-        os.chdir('job_data')
-        try:
-            os.chdir(self.scraper.keywords+'_'+self.scraper.location)
-        except OSError:
-            os.mkdir(self.scraper.keywords+'_'+self.scraper.location)
-            os.chdir(self.scraper.keywords+'_'+self.scraper.location)
-
-        for application_type in application_types:
+            sql = sql_stem + '('
+            sql += ', '.join(['"'+str(job[col]).replace('"', '')+'"' for col in columns]) + ')'
             try:
-                os.chdir(application_type)
-            except OSError:
-                os.mkdir(application_type)
-                os.chdir(application_type)
-            pd.DataFrame(application_types[application_type]).to_csv(str(datetime.now().date()), index=False)
-            os.chdir('..')
+                cursor.execute(sql)
+                cursor.commit()
+            except pyodbc.IntegrityError:
+                print('already scraped this one before; rolling back and moving on...')
+                cursor.rollback()
+
+        self.current_scrape = []
 
 
 if __name__ == "__main__":
     from linkedinScraper import LinkedinScraper
-
     scraper = LinkedinScraper()
     gatherer = Gatherer(scraper)
     gatherer.gather_jobs('software intern python', 'New York')

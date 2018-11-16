@@ -17,7 +17,7 @@ class LinkedinScraper:
 
     def search(self, keywords, location, start):
         def build_link():
-            link = 'https://www.linkedin.com/jobs/search/?'
+            link = 'https://www.linkedin.com/jobs/search/?f_TP=1&'
             link += 'keywords={}'.format('%20'.join(keywords.split()))
             link += '&location={}'.format('%20'.join(location.split()))
             link += '&start={}'.format(start)
@@ -65,13 +65,15 @@ class LinkedinScraper:
             # get title
             for h1 in self.driver.find_elements_by_css_selector('h1'):
                 if 'jobs-details-top-card__job-title' in h1.get_attribute('class'):
+                    print('got title')
                     job_information['title'] = h1.text
 
             # get article description
             for div in self.driver.find_elements_by_css_selector('div'):
                 try:
                     if 'jobs-box__html-content' in div.get_attribute('class'):
-                        job_information['descripton'] = div.text
+                        print('got description')
+                        job_information['description'] = div.text
                 except common.exceptions.StaleElementReferenceException:
                     print('stale element; ignoring and continuing...')
 

@@ -37,6 +37,8 @@ class LinkedinScraper:
         self.driver.find_element_by_css_selector('input#password').send_keys(pw)
         self.driver.find_element_by_css_selector('button').click()
         self.logged_in = True
+        if 'challenge' in self.driver.current_url:
+            input("Waiting for you to solve CAPTCHA. Press enter when you're done.")
 
 
     def scrape_jobs(self):
@@ -57,16 +59,33 @@ class LinkedinScraper:
                     'title': '',
                     'description': '',
                     'link': '',
+                    'company': '',
                     'date': datetime.now().date(),
                     'keywords': self.keywords,
                     'location': self.location
             }
 
+            job_detail_card = self.driver.find_element_by_css_selector('div.jobs-details-top-card__container')
+
             # get title
-            for h1 in self.driver.find_elements_by_css_selector('h1'):
+            for h1 in job_detail_card.find_elements_by_css_selector('h1'):
                 if 'jobs-details-top-card__job-title' in h1.get_attribute('class'):
-                    print('got title')
                     job_information['title'] = h1.text
+                    print('found title as', h1.text)
+
+            company_location_elem = job_detail_card.find_element_by_css_selector('h3.jobs-details-top-card__company-info')
+
+            try:
+                job_information['company'] = company_location_elem.find_element_by_css_selector('a').text
+                print('found company as', job_information['company'])
+            except common.exceptions.NoSuchElementException:
+                print('could not find company element')
+
+            try:
+                job_information['location'] = company_location_elem.find_element_by_css_selector('span.jobs-details-top-card__bullet').text
+                print('found location as', job_information['location'])
+            except common.exceptions.NoSuchElementException:
+                print('could not find location element')
 
             # get article description
             for div in self.driver.find_elements_by_css_selector('div'):
@@ -78,22 +97,26 @@ class LinkedinScraper:
                     print('stale element; ignoring and continuing...')
 
 
-            for button in buttons:
-                if 'ember' in button.get_attribute('id') and 'jobs-apply-button' in button.get_attribute('class'):
-                    if 'Easy Apply' in button.text:
-                        # have to implement easy apply handler
+            try:
+                for button in buttons:
+                    if 'ember' in button.get_attribute('id') and 'jobs-apply-button' in button.get_attribute('class'):
+                        if 'Easy Apply' in button.text:
+                            # have to implement easy apply handler
+                            break
+                        button.click()
+                        self.driver.switch_to.window(self.driver.window_handles[1])
+                        time.sleep(3)
+                        print('sleeping; waiting for page to load...')
+                        try:
+                            job_information['link'] = self.driver.current_url
+                        except common.exceptions.TimeoutException:
+                            print('timed out; moving on...')
+                        self.driver.close()
+                        self.driver.switch_to.window(self.driver.window_handles[0])
                         break
-                    button.click()
-                    self.driver.switch_to.window(self.driver.window_handles[1])
-                    time.sleep(3)
-                    print('sleeping; waiting for page to load...')
-                    try:
-                        job_information['link'] = self.driver.current_url
-                    except common.exceptions.TimeoutException:
-                        print('timed out; moving on...')
-                    self.driver.close()
-                    self.driver.switch_to.window(self.driver.window_handles[0])
-                    break
+            except common.exceptions.StaleElementReferenceException:
+                print('buttons went stale; continuing...')
+
             job_data.append(job_information)
 
         return job_data 

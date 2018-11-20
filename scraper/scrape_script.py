@@ -1,16 +1,17 @@
 import os
+import sys
+
+sys.path.append('..')
 
 from linkedinScraper import LinkedinScraper
 from gatherer import Gatherer
+from watchdog import Watchdog
 
-from flask import Flask
-app = Flask(__name__)
-
-@app.route('/scrape')
 def scrape():
     scraper = LinkedinScraper()
     scraper.login(os.environ['LINKEDIN_USER'], os.environ['LINKEDIN_PW'])
     gatherer = Gatherer(scraper)
+    watchdog = Watchdog(gatherer)
 
     job_list = [
             'data intern',
@@ -23,16 +24,19 @@ def scrape():
             'Vancouver',
             'New York',
             'San Francisco Bay Area',
-            'Toronto'
+            'Toronto',
             ]
 
-    search_list = []
     for job in job_list:
         for location in location_list:
             print('gathering for', job, location)
-            gatherer.gather_jobs(job, location)
-            gatherer.digest_data()
+            watchdog.monitor_gather(job, location)
+
+    for job in job_list:
+        print('gathering for', job, 'Worldwide')
+        watchdog.monitor_gather(job, 'Worldwide')
+
+    return 'Done'
 
 if __name__ == "__main__":
-    #app.run(host="0.0.0.0", debug=True)
     scrape()

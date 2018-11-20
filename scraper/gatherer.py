@@ -1,7 +1,11 @@
+import sys
 import os
 from datetime import datetime
 
 import pyodbc
+
+sys.path.append('..')
+from cursor_wrapper import get_cursor
 
 class Gatherer:
     """
@@ -14,21 +18,20 @@ class Gatherer:
         self.jobbie_user = os.environ['JOBBIE_USER']
         self.jobbie_pw = os.environ['JOBBIE_PW']
 
-    def ingest_data(self, job_data):
-        self.current_scrape += job_data
-        pass
 
-    def gather_jobs(self, keywords, location):
-        start = 0
+    def gather_jobs(self, keywords, location, start=0, progress_file=None):
         if not self.scraper.logged_in:
-            user = input('Username?')
-            pw = input('Password?')
+            user = os.environ['LINKEDIN_USER']
+            pw = os.environ['LINKEDIN_PW']
             self.scraper.login(user, pw)
 
         self.scraper.search(keywords, location, start)
         print('scraping jobs at {}...'.format(start))
         job_data = self.scraper.scrape_jobs()
-        self.ingest_data(job_data)
+        self.digest_data(job_data)
+        if progress_file:
+            self.save_progress(progress_file, start)
+
         job_data_per_pagination = len(job_data)
         if job_data_per_pagination == 0:
             return 
@@ -39,18 +42,18 @@ class Gatherer:
             print('scraping jobs at {}...'.format(start))
             job_data = self.scraper.scrape_jobs()
             start += job_data_per_pagination
-            self.ingest_data(job_data)
+            self.digest_data(job_data)
+            if progress_file:
+                self.save_progress(progress_file, start)
 
-    def digest_data(self):
-        cnxn_str = "DRIVER={MySQL ODBC 8.0 Driver};SERVER=jobbie-db.cpggzb24ffm6.ca-central-1.rds.amazonaws.com;DATABASE=jobbie_db;"
-        cnxn_str += 'UID='+self.jobbie_user+';'
-        cnxn_str += 'PASSWORD='+self.jobbie_pw+';'
-        cursor = pyodbc.connect(cnxn_str).cursor()
 
-        columns = ['title', 'description', 'link', 'date', 'keywords', 'location']
+    def digest_data(self, job_data):
+        cursor = get_cursor()
+
+        columns = ['title', 'description', 'link', 'date', 'keywords', 'location', 'company']
         sql_stem = 'INSERT INTO jobPostings('
         sql_stem += ', '.join(columns) + ')\nVALUES\n'
-        for job in self.current_scrape:
+        for job in job_data:
             sql = sql_stem + '('
             sql += ', '.join(['"'+str(job[col]).replace('"', '')+'"' for col in columns]) + ')'
             try:
@@ -60,7 +63,11 @@ class Gatherer:
                 print('already scraped this one before; rolling back and moving on...')
                 cursor.rollback()
 
-        self.current_scrape = []
+
+    def save_progress(self, progress_file, start):
+        f = open(progress_file, 'w')
+        f.write(str(start))
+        f.close()
 
 
 if __name__ == "__main__":
@@ -68,4 +75,3 @@ if __name__ == "__main__":
     scraper = LinkedinScraper()
     gatherer = Gatherer(scraper)
     gatherer.gather_jobs('software intern python', 'New York')
-    gatherer.digest_data()
